@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Search archive</h2>
+<form method="get">
+  <input type="text" name="q" value="{{ query }}" placeholder='warlock titan "sweet business" "mask of the quiet one"' />
+  <button type="submit">Search</button>
+</form>
+<p><small>Tips: words search full text/title. Use quotes for exact phrases.</small></p>
+
+{% if query %}
+  <p>{{ rows|length }} matches for <strong>{{ query }}</strong>.</p>
+  <table>
+    <thead>
+      <tr><th>Date</th><th>Type</th><th>Article</th><th>Versions</th><th>Excerpt</th></tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row['published_at'] or 'Unknown' }}</td>
+        <td>{{ row['article_type'] }}</td>
+        <td><a href="{{ row['url'] }}" target="_blank">{{ row['title'] }}</a></td>
+        <td>
+          {{ row['version_count'] }} total / {{ row['changed_versions'] }} changed
+          <br />
+          <a href="{{ url_for('history', slug=row['slug']) }}">View history</a>
+        </td>
+        <td>{{ row['excerpt'] }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No hits.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+{% endblock %}
