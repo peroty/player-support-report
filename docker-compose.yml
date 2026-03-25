@@ -1,0 +1,26 @@
+services:
+  destiny-support-report:
+    build: .
+    container_name: destiny-support-report
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      BUNGIE_RSS_URL: ${BUNGIE_RSS_URL:-https://www.bungie.net/7/en/News/rss}
+      PORT: 8000
+      DB_PATH: /app/data/data.sqlite3
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - npm_proxy
+
+networks:
+  npm_proxy:
+    external: true
+    name: npm_proxy
