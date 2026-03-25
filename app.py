@@ -120,7 +120,7 @@ def fetch_article_html(url: str) -> str:
     return resp.text
 
 
-def canonical_bungie_url(link_value: str) -> str:
+                    def canonical_bungie_url(link_value: str) -> str:
     return urljoin(RSS_BASE_URL, link_value)
 
 
