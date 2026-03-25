@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urljoin
 
 import feedparser
 import requests
@@ -19,6 +20,8 @@ from matcher import normalize_line, similarity_score
 BASE_DIR = Path(__file__).parent
 DB_PATH = Path(os.getenv("DB_PATH", str(BASE_DIR / "data.sqlite3")))
 RSS_URL = os.getenv("BUNGIE_RSS_URL", "https://www.bungie.net/7/en/News/rss")
+RSS_BASE_URL = os.getenv("BUNGIE_BASE_URL", "https://www.bungie.net")
+RSS_MAX_PAGES = int(os.getenv("RSS_MAX_PAGES", "3"))
 PORT = int(os.getenv("PORT", "7777"))
 LOG_PATH = Path(os.getenv("LOG_PATH", str(BASE_DIR / "logs" / "app.log")))
 
@@ -117,6 +120,36 @@ def fetch_article_html(url: str) -> str:
     return resp.text
 
 
+                    def canonical_bungie_url(link_value: str) -> str:
+    return urljoin(RSS_BASE_URL, link_value)
+
+
+def gather_feed_entries() -> list[feedparser.FeedParserDict]:
+    entries: list[feedparser.FeedParserDict] = []
+    next_url = RSS_URL
+    seen = set()
+
+    for _ in range(RSS_MAX_PAGES):
+        if not next_url or next_url in seen:
+            break
+        seen.add(next_url)
+        feed = feedparser.parse(next_url)
+        if getattr(feed, "bozo", False):
+            add_log("warning", "Feed parser reported malformed RSS payload", str(getattr(feed, "bozo_exception", "")))
+
+        page_entries = list(getattr(feed, "entries", []))
+        entries.extend(page_entries)
+        add_log("info", f"Loaded RSS page entries={len(page_entries)} url={next_url}")
+
+        next_url = None
+        for link in getattr(feed, "feed", {}).get("links", []):
+            if link.get("rel") == "next" and link.get("href"):
+                next_url = canonical_bungie_url(link["href"])
+                break
+
+    return entries
+
+
 def extract_section_items(html: str, article_type: str) -> list[tuple[str, str, str]]:
     soup = BeautifulSoup(html, "html.parser")
 
@@ -202,22 +235,21 @@ def parse_feed_date(entry: feedparser.FeedParserDict) -> str | None:
 
 def sync_from_rss() -> dict[str, int]:
     add_log("info", f"Starting RSS sync from {RSS_URL}")
-    feed = feedparser.parse(RSS_URL)
-    if getattr(feed, "bozo", False):
-        add_log("warning", "Feed parser reported a malformed RSS payload", str(getattr(feed, "bozo_exception", "")))
     conn = get_db()
     imported = 0
     skipped = 0
     failed = 0
-    if not getattr(feed, "entries", None):
+    feed_entries = gather_feed_entries()
+    if not feed_entries:
         add_log("warning", "RSS feed returned no entries")
-    for entry in feed.entries:
+    for entry in feed_entries:
         title = entry.get("title", "Untitled")
-        url = entry.get("link")
-        if not url:
+        link_value = entry.get("link")
+        if not link_value:
             skipped += 1
             add_log("warning", f"Skipping entry without link: {title}")
             continue
+        url = canonical_bungie_url(link_value)
         article_type = classify_article(url, title)
         if article_type == "other":
             skipped += 1

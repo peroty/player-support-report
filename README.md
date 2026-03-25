@@ -3,6 +3,8 @@
 A self-hosted Flask app that:
 
 - Pulls Bungie News from RSS.
+- Resolves RSS item links (including relative `/7/en/...` links) to full Bungie URLs.
+- Fetches each linked article page and stores the full HTML locally.
 - Archives TWIDs and Destiny patch notes in SQLite.
 - Extracts list-style change items.
 - Compares latest patch notes vs latest TWID with fuzzy matching.
@@ -64,6 +66,7 @@ Application logs are persisted under `./data/logs/app.log`.
 
 - Use the in-app **Logs** page (`/logs`) to inspect `INFO`, `WARNING`, and `ERROR` events.
 - After clicking **Sync from RSS**, the home page now displays imported / skipped / failed counts.
+- The sync pipeline follows RSS pagination via `atom:link rel=\"next\"` for up to `RSS_MAX_PAGES`.
 
 ## Resolve merge conflicts automatically (accept all)
 
