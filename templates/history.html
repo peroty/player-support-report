@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Article history</h2>
+<p><a href="{{ article['url'] }}" target="_blank">{{ article['title'] }}</a></p>
+
+<table>
+  <thead>
+    <tr><th>Fetched At</th><th>Published At</th><th>Changed?</th><th>Content Hash</th></tr>
+  </thead>
+  <tbody>
+    {% for row in versions %}
+    <tr>
+      <td>{{ row['fetched_at'] }}</td>
+      <td>{{ row['published_at'] or 'Unknown' }}</td>
+      <td>{% if row['is_changed'] %}Yes{% else %}No{% endif %}</td>
+      <td><code>{{ row['content_hash'][:12] }}</code></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4">No versions captured.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

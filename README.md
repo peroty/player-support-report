@@ -6,10 +6,11 @@ A self-hosted Flask app that:
 - Resolves RSS item links (including relative `/7/en/...` links) to full Bungie URLs.
 - Fetches each linked article page and stores the full HTML locally.
 - Archives TWIDs and Destiny patch notes in SQLite.
+- Keeps a versioned snapshot every time RSS sync runs.
 - Extracts list-style change items.
 - Compares latest patch notes vs latest TWID with fuzzy matching.
 - Strikethroughs patch notes that were already teased in the TWID.
-- Lets you search historical mentions (weapons, armor, systems).
+- Lets you search full text mentions, including quoted phrases.
 - Detects tease sections more flexibly (e.g., Sandbox/Balance/Class/Changes headings, not just exact \"Patch Preview\").
 
 ## Why this helps your podcast workflow
@@ -32,7 +33,7 @@ Open http://localhost:8000 then:
 
 1. Click **Sync from RSS**.
 2. Click **Compare latest**.
-3. Optionally use `/search?q=your-term`.
+3. Optionally use `/search?q=warlock,titan,"sweet business"`.
 
 ## Deploy in homelab
 
@@ -67,7 +68,9 @@ Application logs are persisted under `./data/logs/app.log`.
 ## Troubleshooting sync
 
 - Use the in-app **Logs** page (`/logs`) to inspect `INFO`, `WARNING`, and `ERROR` events.
-- After clicking **Sync from RSS**, the home page now displays imported / skipped / failed counts.
+- After clicking **Sync from RSS**, the home page now displays imported / unchanged / skipped / failed counts.
+- `skipped` is normally duplicates seen across paginated RSS pages (same slug) or entries missing links.
+- Use each article’s **Versions** link to inspect stored snapshot history and change markers.
 - The sync pipeline follows RSS pagination via `atom:link rel=\"next\"` for up to `RSS_MAX_PAGES`.
 - If RSS fetch fails, check `/logs` for HTTP status/body errors from Bungie and verify `BUNGIE_RSS_URL`.
 

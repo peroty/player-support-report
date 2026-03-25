@@ -5,6 +5,7 @@ import os
 import re
 import sqlite3
 import traceback
+from hashlib import sha256
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,6 +76,9 @@ def init_db() -> None:
             title TEXT NOT NULL,
             url TEXT NOT NULL,
             published_at TEXT,
+            content_text TEXT NOT NULL DEFAULT '',
+            content_normalized TEXT NOT NULL DEFAULT '',
+            content_hash TEXT NOT NULL DEFAULT '',
             content_html TEXT NOT NULL,
             fetched_at TEXT NOT NULL
         );
@@ -97,8 +101,30 @@ def init_db() -> None:
             message TEXT NOT NULL,
             details TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS article_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+            fetched_at TEXT NOT NULL,
+            title TEXT NOT NULL,
+            published_at TEXT,
+            content_hash TEXT NOT NULL,
+            content_text TEXT NOT NULL,
+            content_normalized TEXT NOT NULL,
+            content_html TEXT NOT NULL,
+            is_changed INTEGER NOT NULL CHECK(is_changed IN (0,1))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_versions_article_fetched ON article_versions(article_id, fetched_at DESC);
         """
     )
+    existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(articles)").fetchall()}
+    if "content_text" not in existing_cols:
+        conn.execute("ALTER TABLE articles ADD COLUMN content_text TEXT NOT NULL DEFAULT ''")
+    if "content_normalized" not in existing_cols:
+        conn.execute("ALTER TABLE articles ADD COLUMN content_normalized TEXT NOT NULL DEFAULT ''")
+    if "content_hash" not in existing_cols:
+        conn.execute("ALTER TABLE articles ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
     conn.commit()
     conn.close()
 
@@ -230,31 +256,47 @@ def upsert_article(conn: sqlite3.Connection, *, title: str, url: str, published_
     slug = slug_from_url(url)
     article_type = classify_article(url, title)
     fetched_at = datetime.now(timezone.utc).isoformat()
+    content_text = BeautifulSoup(html, "html.parser").get_text(" ", strip=True)
+    content_normalized = normalize_line(content_text)
+    content_hash = sha256(content_normalized.encode("utf-8")).hexdigest()
+    previous = conn.execute("SELECT content_hash FROM articles WHERE slug = ?", (slug,)).fetchone()
+    is_changed = 0 if previous and previous["content_hash"] == content_hash else 1
     conn.execute(
         """
-        INSERT INTO articles(slug, article_type, title, url, published_at, content_html, fetched_at)
-        VALUES(?,?,?,?,?,?,?)
+        INSERT INTO articles(slug, article_type, title, url, published_at, content_text, content_normalized, content_hash, content_html, fetched_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(slug)
         DO UPDATE SET
           title=excluded.title,
           article_type=excluded.article_type,
           url=excluded.url,
           published_at=excluded.published_at,
+          content_text=excluded.content_text,
+          content_normalized=excluded.content_normalized,
+          content_hash=excluded.content_hash,
           content_html=excluded.content_html,
           fetched_at=excluded.fetched_at
         """,
-        (slug, article_type, title, url, published_at, html, fetched_at),
+        (slug, article_type, title, url, published_at, content_text, content_normalized, content_hash, html, fetched_at),
     )
     row = conn.execute("SELECT id FROM articles WHERE slug = ?", (slug,)).fetchone()
     assert row is not None
+    article_id = int(row["id"])
+    conn.execute(
+        """
+        INSERT INTO article_versions(article_id, fetched_at, title, published_at, content_hash, content_text, content_normalized, content_html, is_changed)
+        VALUES(?,?,?,?,?,?,?,?,?)
+        """,
+        (article_id, fetched_at, title, published_at, content_hash, content_text, content_normalized, html, is_changed),
+    )
 
-    conn.execute("DELETE FROM extracted_items WHERE article_id = ?", (row["id"],))
+    conn.execute("DELETE FROM extracted_items WHERE article_id = ?", (article_id,))
     for section, item, normalized in extract_section_items(html, article_type):
         conn.execute(
             "INSERT INTO extracted_items(article_id, section, item_text, normalized_item) VALUES(?,?,?,?)",
-            (row["id"], section, item, normalized),
+            (article_id, section, item, normalized),
         )
-    return int(row["id"])
+    return article_id
 
 
 def parse_feed_date(entry: feedparser.FeedParserDict) -> str | None:
@@ -269,10 +311,12 @@ def sync_from_rss() -> dict[str, int]:
     conn = get_db()
     imported = 0
     skipped = 0
+    unchanged = 0
     failed = 0
     feed_entries = gather_feed_entries()
     if not feed_entries:
         add_log("warning", "RSS feed returned no entries")
+    seen_slugs: set[str] = set()
     for entry in feed_entries:
         title = entry.get("title", "Untitled")
         link_value = entry.get("link")
@@ -281,13 +325,19 @@ def sync_from_rss() -> dict[str, int]:
             add_log("warning", f"Skipping entry without link: {title}")
             continue
         url = canonical_bungie_url(link_value)
-        article_type = classify_article(url, title)
-        if article_type == "other":
+        slug = slug_from_url(url)
+        if slug in seen_slugs:
             skipped += 1
             continue
+        seen_slugs.add(slug)
         try:
+            previous = conn.execute("SELECT content_hash FROM articles WHERE slug = ?", (slug,)).fetchone()
             html = fetch_article_html(url)
             upsert_article(conn, title=title, url=url, published_at=parse_feed_date(entry), html=html)
+            normalized_text = normalize_line(BeautifulSoup(html, "html.parser").get_text(" ", strip=True))
+            current_hash = sha256(normalized_text.encode("utf-8")).hexdigest()
+            if previous and previous["content_hash"] == current_hash:
+                unchanged += 1
             imported += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
@@ -295,8 +345,15 @@ def sync_from_rss() -> dict[str, int]:
 
     conn.commit()
     conn.close()
-    add_log("info", f"RSS sync complete: imported={imported}, skipped={skipped}, failed={failed}")
-    return {"imported": imported, "skipped": skipped, "failed": failed}
+    add_log("info", f"RSS sync complete: imported={imported}, skipped={skipped}, unchanged={unchanged}, failed={failed}")
+    return {"imported": imported, "skipped": skipped, "unchanged": unchanged, "failed": failed}
+
+
+def parse_search_terms(query: str) -> tuple[list[str], list[str]]:
+    quoted = [normalize_line(match) for match in re.findall(r'"([^"]+)"', query)]
+    cleaned = re.sub(r'"[^"]+"', " ", query)
+    keywords = [normalize_line(part) for part in re.split(r"[\s,]+", cleaned) if normalize_line(part)]
+    return [term for term in quoted if term], [term for term in keywords if term]
 
 
 def find_latest(conn: sqlite3.Connection, article_type: str):
@@ -344,7 +401,7 @@ def index():
     latest_twid = find_latest(conn, "twid")
     latest_patch = find_latest(conn, "patch")
     recent_articles = conn.execute(
-        "SELECT id, article_type, title, url, published_at FROM articles ORDER BY published_at DESC NULLS LAST, id DESC LIMIT 30"
+        "SELECT id, slug, article_type, title, url, published_at FROM articles ORDER BY published_at DESC NULLS LAST, id DESC LIMIT 30"
     ).fetchall()
     conn.close()
     return render_template(
@@ -354,6 +411,7 @@ def index():
         recent_articles=recent_articles,
         imported=request.args.get("imported"),
         skipped=request.args.get("skipped"),
+        unchanged=request.args.get("unchanged"),
         failed=request.args.get("failed"),
         sync_error=request.args.get("sync_error"),
     )
@@ -364,7 +422,13 @@ def sync():
     try:
         result = sync_from_rss()
         return redirect(
-            url_for("index", imported=result["imported"], skipped=result["skipped"], failed=result["failed"])
+            url_for(
+                "index",
+                imported=result["imported"],
+                skipped=result["skipped"],
+                unchanged=result["unchanged"],
+                failed=result["failed"],
+            )
         )
     except Exception as exc:  # noqa: BLE001
         details = traceback.format_exc()
@@ -399,20 +463,66 @@ def search():
     query = request.args.get("q", "").strip()
     rows: Iterable[sqlite3.Row] = []
     if query:
-        conn = get_db()
-        rows = conn.execute(
-            """
-            SELECT a.title, a.url, a.article_type, a.published_at, e.section, e.item_text
-            FROM extracted_items e
-            JOIN articles a ON a.id = e.article_id
-            WHERE e.normalized_item LIKE ?
-            ORDER BY a.published_at DESC NULLS LAST
-            LIMIT 200
-            """,
-            (f"%{normalize_line(query)}%",),
-        ).fetchall()
-        conn.close()
+        phrases, keywords = parse_search_terms(query)
+        if phrases or keywords:
+            where_parts: list[str] = []
+            params: list[str] = []
+            for phrase in phrases:
+                where_parts.append("(a.content_normalized LIKE ? OR lower(a.title) LIKE ?)")
+                params.extend([f"%{phrase}%", f"%{phrase}%"])
+            for keyword in keywords:
+                where_parts.append("(a.content_normalized LIKE ? OR lower(a.title) LIKE ?)")
+                params.extend([f"%{keyword}%", f"%{keyword}%"])
+            where = " OR ".join(where_parts)
+            conn = get_db()
+            rows = conn.execute(
+                f"""
+                SELECT
+                    a.slug,
+                    a.title,
+                    a.url,
+                    a.article_type,
+                    a.published_at,
+                    (
+                      SELECT COUNT(*)
+                      FROM article_versions v
+                      WHERE v.article_id = a.id
+                    ) AS version_count,
+                    (
+                      SELECT COUNT(*)
+                      FROM article_versions v
+                      WHERE v.article_id = a.id AND v.is_changed = 1
+                    ) AS changed_versions,
+                    substr(a.content_text, 1, 450) AS excerpt
+                FROM articles a
+                WHERE {where}
+                ORDER BY a.published_at DESC NULLS LAST
+                LIMIT 200
+                """,
+                params,
+            ).fetchall()
+            conn.close()
     return render_template("search.html", query=query, rows=rows)
+
+
+@app.route("/history/<slug>")
+def history(slug: str):
+    conn = get_db()
+    article = conn.execute("SELECT id, title, url FROM articles WHERE slug = ?", (slug,)).fetchone()
+    if not article:
+        conn.close()
+        return render_template("error.html", error=f"No article found for slug '{slug}'"), 404
+    versions = conn.execute(
+        """
+        SELECT fetched_at, published_at, content_hash, is_changed
+        FROM article_versions
+        WHERE article_id = ?
+        ORDER BY fetched_at DESC
+        """,
+        (article["id"],),
+    ).fetchall()
+    conn.close()
+    return render_template("history.html", article=article, versions=versions)
 
 
 @app.route("/healthz")
