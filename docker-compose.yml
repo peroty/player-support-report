@@ -1,0 +1,20 @@
+services:
+  destiny-support-report:
+    build: .
+    container_name: destiny-support-report
+    restart: unless-stopped
+    ports:
+      - "7777:7777"
+    environment:
+      BUNGIE_RSS_URL: ${BUNGIE_RSS_URL:-https://www.bungie.net/7/en/News/rss}
+      PORT: 7777
+      DB_PATH: /app/data/data.sqlite3
+      LOG_PATH: /app/data/logs/app.log
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7777/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

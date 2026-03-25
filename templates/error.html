@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Unexpected error</h2>
+<p class="error">{{ error }}</p>
+<p>Check the <a href="{{ url_for('logs') }}">logs page</a> for details.</p>
+{% endblock %}

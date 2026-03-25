@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block content %}
+{% if error %}
+  <p class="error">{{ error }}</p>
+{% else %}
+  <h2>Comparison</h2>
+  <p>TWID: <a href="{{ twid['url'] }}" target="_blank">{{ twid['title'] }}</a></p>
+  <p>Patch: <a href="{{ patch['url'] }}" target="_blank">{{ patch['title'] }}</a></p>
+  <p>Threshold: {{ threshold }} | Teased: {{ teased_count }} / {{ results|length }}</p>
+
+  <table>
+    <thead>
+      <tr><th>Patch Note</th><th>Closest TWID mention</th><th>Score</th></tr>
+    </thead>
+    <tbody>
+      {% for row in results %}
+      <tr class="{{ 'teased' if row['teased'] else 'new' }}">
+        <td>
+          {% if row['teased'] %}
+            <span class="strike">{{ row['patch_item'] }}</span>
+          {% else %}
+            <strong>{{ row['patch_item'] }}</strong>
+          {% endif %}
+          <div class="muted">{{ row['patch_section'] }}</div>
+        </td>
+        <td>{{ row['best_twid_item'] or 'No close match found' }}</td>
+        <td>{{ row['score'] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+{% endblock %}
