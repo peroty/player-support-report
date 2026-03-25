@@ -1,0 +1,29 @@
+services:
+  player-support-report:
+    build: .
+    container_name: player-support-report
+    restart: unless-stopped
+    ports:
+      - "7777:8000"
+    environment:
+      BUNGIE_RSS_URL: ${BUNGIE_RSS_URL:-https://www.bungie.net/en/rss/news?currentPage=0}
+      BUNGIE_BASE_URL: ${BUNGIE_BASE_URL:-https://www.bungie.net}
+      RSS_MAX_PAGES: ${RSS_MAX_PAGES:-3}
+      HTTP_USER_AGENT: ${HTTP_USER_AGENT:-player-support-report/1.0 (+https://github.com/)}
+      PORT: 8000
+      DB_PATH: /app/data/data.sqlite3
+      LOG_PATH: /app/data/logs/app.log
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import sys,urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3); sys.exit(0 if r.status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
