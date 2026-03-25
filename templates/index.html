@@ -1,5 +1,12 @@
 {% extends 'base.html' %}
 {% block content %}
+{% if imported is not none %}
+  <p class="success">Sync complete. Imported {{ imported }}, skipped {{ skipped }}, failed {{ failed }}.</p>
+{% endif %}
+{% if sync_error %}
+  <p class="error">Sync failed: {{ sync_error }} (see <a href="{{ url_for('logs') }}">logs</a>).</p>
+{% endif %}
+
 <section class="cards">
   <article class="card">
     <h2>Latest TWID</h2>

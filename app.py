@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sqlite3
+import traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,7 +19,8 @@ from matcher import normalize_line, similarity_score
 BASE_DIR = Path(__file__).parent
 DB_PATH = Path(os.getenv("DB_PATH", str(BASE_DIR / "data.sqlite3")))
 RSS_URL = os.getenv("BUNGIE_RSS_URL", "https://www.bungie.net/7/en/News/rss")
-PORT = int(os.getenv("PORT", "8000"))
+PORT = int(os.getenv("PORT", "7777"))
+LOG_PATH = Path(os.getenv("LOG_PATH", str(BASE_DIR / "logs" / "app.log")))
 
 app = Flask(__name__)
 
@@ -59,7 +62,36 @@ def init_db() -> None:
 
         CREATE INDEX IF NOT EXISTS idx_articles_type_pub ON articles(article_type, published_at);
         CREATE INDEX IF NOT EXISTS idx_items_section ON extracted_items(section);
+
+        CREATE TABLE IF NOT EXISTS app_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            level TEXT NOT NULL,
+            message TEXT NOT NULL,
+            details TEXT
+        );
         """
+    )
+    conn.commit()
+    conn.close()
+
+
+def setup_logging() -> None:
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        handlers=[logging.FileHandler(LOG_PATH), logging.StreamHandler()],
+    )
+
+
+def add_log(level: str, message: str, details: str | None = None) -> None:
+    level_upper = level.upper()
+    logging.log(getattr(logging, level_upper, logging.INFO), message)
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO app_logs(created_at, level, message, details) VALUES(?,?,?,?)",
+        (datetime.now(timezone.utc).isoformat(), level_upper, message, details),
     )
     conn.commit()
     conn.close()
@@ -169,27 +201,39 @@ def parse_feed_date(entry: feedparser.FeedParserDict) -> str | None:
 
 
 def sync_from_rss() -> dict[str, int]:
+    add_log("info", f"Starting RSS sync from {RSS_URL}")
     feed = feedparser.parse(RSS_URL)
+    if getattr(feed, "bozo", False):
+        add_log("warning", "Feed parser reported a malformed RSS payload", str(getattr(feed, "bozo_exception", "")))
     conn = get_db()
     imported = 0
     skipped = 0
+    failed = 0
+    if not getattr(feed, "entries", None):
+        add_log("warning", "RSS feed returned no entries")
     for entry in feed.entries:
         title = entry.get("title", "Untitled")
         url = entry.get("link")
         if not url:
             skipped += 1
+            add_log("warning", f"Skipping entry without link: {title}")
             continue
         article_type = classify_article(url, title)
         if article_type == "other":
             skipped += 1
             continue
-        html = fetch_article_html(url)
-        upsert_article(conn, title=title, url=url, published_at=parse_feed_date(entry), html=html)
-        imported += 1
+        try:
+            html = fetch_article_html(url)
+            upsert_article(conn, title=title, url=url, published_at=parse_feed_date(entry), html=html)
+            imported += 1
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            add_log("error", f"Failed to import article: {title}", f"url={url}\nerror={exc}")
 
     conn.commit()
     conn.close()
-    return {"imported": imported, "skipped": skipped}
+    add_log("info", f"RSS sync complete: imported={imported}, skipped={skipped}, failed={failed}")
+    return {"imported": imported, "skipped": skipped, "failed": failed}
 
 
 def find_latest(conn: sqlite3.Connection, article_type: str):
@@ -240,13 +284,29 @@ def index():
         "SELECT id, article_type, title, url, published_at FROM articles ORDER BY published_at DESC NULLS LAST, id DESC LIMIT 30"
     ).fetchall()
     conn.close()
-    return render_template("index.html", latest_twid=latest_twid, latest_patch=latest_patch, recent_articles=recent_articles)
+    return render_template(
+        "index.html",
+        latest_twid=latest_twid,
+        latest_patch=latest_patch,
+        recent_articles=recent_articles,
+        imported=request.args.get("imported"),
+        skipped=request.args.get("skipped"),
+        failed=request.args.get("failed"),
+        sync_error=request.args.get("sync_error"),
+    )
 
 
 @app.route("/sync")
 def sync():
-    result = sync_from_rss()
-    return redirect(url_for("index", imported=result["imported"], skipped=result["skipped"]))
+    try:
+        result = sync_from_rss()
+        return redirect(
+            url_for("index", imported=result["imported"], skipped=result["skipped"], failed=result["failed"])
+        )
+    except Exception as exc:  # noqa: BLE001
+        details = traceback.format_exc()
+        add_log("error", "Sync endpoint failed unexpectedly", f"{exc}\n{details}")
+        return redirect(url_for("index", sync_error=str(exc)))
 
 
 @app.route("/compare")
@@ -297,6 +357,21 @@ def healthz():
     return {"status": "ok"}, 200
 
 
+@app.route("/logs")
+def logs():
+    conn = get_db()
+    rows = conn.execute("SELECT created_at, level, message, details FROM app_logs ORDER BY id DESC LIMIT 300").fetchall()
+    conn.close()
+    return render_template("logs.html", rows=rows, log_path=str(LOG_PATH))
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(exc):  # noqa: ANN001
+    add_log("error", "Unhandled application exception", traceback.format_exc())
+    return render_template("error.html", error=str(exc)), 500
+
+
+setup_logging()
 init_db()
 
 
