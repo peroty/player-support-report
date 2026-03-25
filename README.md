@@ -27,7 +27,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Open http://localhost:7777 then:
+Open http://localhost:8000 then:
 
 1. Click **Sync from RSS**.
 2. Click **Compare latest**.
@@ -38,7 +38,7 @@ Open http://localhost:7777 then:
 You can run this behind nginx, Caddy, or Traefik with Gunicorn:
 
 ```bash
-gunicorn -w 2 -b 0.0.0.0:7777 app:app
+gunicorn -w 2 -b 0.0.0.0:8000 app:app
 ```
 
 Persist `data.sqlite3` in a volume/bind mount.
@@ -58,6 +58,7 @@ docker compose up -d --build
 ```
 
 3. Open `http://<docker-host>:7777` and run **Sync from RSS** once.
+   (container listens on 8000, host exposes 7777)
 
 The persistent SQLite DB is stored on the host at `./data/data.sqlite3` via bind mount.
 Application logs are persisted under `./data/logs/app.log`.
@@ -67,6 +68,19 @@ Application logs are persisted under `./data/logs/app.log`.
 - Use the in-app **Logs** page (`/logs`) to inspect `INFO`, `WARNING`, and `ERROR` events.
 - After clicking **Sync from RSS**, the home page now displays imported / skipped / failed counts.
 - The sync pipeline follows RSS pagination via `atom:link rel=\"next\"` for up to `RSS_MAX_PAGES`.
+- If RSS fetch fails, check `/logs` for HTTP status/body errors from Bungie and verify `BUNGIE_RSS_URL`.
+
+### Docker healthcheck troubleshooting
+
+If Docker reports `unhealthy`, run:
+
+```bash
+docker ps
+docker logs player-support-report
+docker inspect --format='{{json .State.Health}}' player-support-report
+```
+
+The container healthcheck calls `http://127.0.0.1:8000/healthz` from inside the container.
 
 ## Resolve merge conflicts automatically (accept all)
 

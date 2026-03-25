@@ -19,11 +19,15 @@ from matcher import normalize_line, similarity_score
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = Path(os.getenv("DB_PATH", str(BASE_DIR / "data.sqlite3")))
-RSS_URL = os.getenv("BUNGIE_RSS_URL", "https://www.bungie.net/7/en/News/rss")
+RSS_URL = os.getenv("BUNGIE_RSS_URL", "https://www.bungie.net/en/rss/news?currentPage=0")
 RSS_BASE_URL = os.getenv("BUNGIE_BASE_URL", "https://www.bungie.net")
 RSS_MAX_PAGES = int(os.getenv("RSS_MAX_PAGES", "3"))
-PORT = int(os.getenv("PORT", "7777"))
+PORT = int(os.getenv("PORT", "8000"))
 LOG_PATH = Path(os.getenv("LOG_PATH", str(BASE_DIR / "logs" / "app.log")))
+HTTP_USER_AGENT = os.getenv(
+    "HTTP_USER_AGENT",
+    "player-support-report/1.0 (+https://github.com/)",
+)
 
 app = Flask(__name__)
 
@@ -115,12 +119,12 @@ def slug_from_url(url: str) -> str:
 
 
 def fetch_article_html(url: str) -> str:
-    resp = requests.get(url, timeout=30)
+    resp = requests.get(url, timeout=30, headers={"User-Agent": HTTP_USER_AGENT})
     resp.raise_for_status()
     return resp.text
 
 
-                    def canonical_bungie_url(link_value: str) -> str:
+def canonical_bungie_url(link_value: str) -> str:
     return urljoin(RSS_BASE_URL, link_value)
 
 
@@ -133,7 +137,10 @@ def gather_feed_entries() -> list[feedparser.FeedParserDict]:
         if not next_url or next_url in seen:
             break
         seen.add(next_url)
-        feed = feedparser.parse(next_url)
+        add_log("info", f"Fetching RSS page url={next_url}")
+        response = requests.get(next_url, timeout=30, headers={"User-Agent": HTTP_USER_AGENT})
+        response.raise_for_status()
+        feed = feedparser.parse(response.content)
         if getattr(feed, "bozo", False):
             add_log("warning", "Feed parser reported malformed RSS payload", str(getattr(feed, "bozo_exception", "")))
 
