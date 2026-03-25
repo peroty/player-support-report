@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,8 +15,9 @@ from flask import Flask, redirect, render_template, request, url_for
 from matcher import normalize_line, similarity_score
 
 BASE_DIR = Path(__file__).parent
-DB_PATH = BASE_DIR / "data.sqlite3"
+DB_PATH = Path(os.getenv("DB_PATH", str(BASE_DIR / "data.sqlite3")))
 RSS_URL = os.getenv("BUNGIE_RSS_URL", "https://www.bungie.net/7/en/News/rss")
+PORT = int(os.getenv("PORT", "8000"))
 
 app = Flask(__name__)
 
@@ -290,8 +292,13 @@ def search():
     return render_template("search.html", query=query, rows=rows)
 
 
+@app.route("/healthz")
+def healthz():
+    return {"status": "ok"}, 200
+
+
 init_db()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    app.run(host="0.0.0.0", port=PORT, debug=False)

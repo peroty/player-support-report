@@ -41,6 +41,39 @@ gunicorn -w 2 -b 0.0.0.0:8000 app:app
 
 Persist `data.sqlite3` in a volume/bind mount.
 
+## Docker quick start (recommended for homelab)
+
+1. Copy env file:
+
+```bash
+cp .env.example .env
+```
+
+2. Make sure the external Docker network for Nginx Proxy Manager exists:
+
+```bash
+docker network create npm_proxy
+```
+
+3. Build and start:
+
+```bash
+docker compose up -d --build
+```
+
+4. Open `http://<docker-host>:8000` and run **Sync from RSS** once.
+
+### Nginx Proxy Manager integration notes
+
+- **Automatic pickup:** Nginx Proxy Manager does **not** auto-discover apps like Traefik. You still create a Proxy Host manually in NPM.
+- This compose file attaches the app to an external `npm_proxy` network so NPM can route to it by container name.
+- In NPM, set:
+  - **Forward Hostname / IP:** `destiny-support-report`
+  - **Forward Port:** `8000`
+  - Then assign your domain + SSL cert in NPM as usual.
+
+The persistent SQLite DB is stored on the host at `./data/data.sqlite3` via bind mount.
+
 ## Notes / future ideas
 
 - Pair specific patch to nearest previous TWID by date (instead of latest/latest).
