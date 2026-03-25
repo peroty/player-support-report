@@ -10,6 +10,7 @@ A self-hosted Flask app that:
 - Compares latest patch notes vs latest TWID with fuzzy matching.
 - Strikethroughs patch notes that were already teased in the TWID.
 - Lets you search historical mentions (weapons, armor, systems).
+- Detects tease sections more flexibly (e.g., Sandbox/Balance/Class/Changes headings, not just exact \"Patch Preview\").
 
 ## Why this helps your podcast workflow
 

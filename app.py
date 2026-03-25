@@ -29,6 +29,26 @@ HTTP_USER_AGENT = os.getenv(
     "player-support-report/1.0 (+https://github.com/)",
 )
 
+TWID_HEADING_HINTS = {
+    "known issues",
+    "known issue",
+    "patch preview",
+    "patch notes preview",
+    "preview",
+    "sandbox",
+    "balance",
+    "changes",
+    "tuning",
+    "weapon",
+    "weapons",
+    "armor",
+    "ability",
+    "abilities",
+    "class",
+    "subclass",
+    "exotic",
+}
+
 app = Flask(__name__)
 
 
@@ -160,11 +180,9 @@ def gather_feed_entries() -> list[feedparser.FeedParserDict]:
 def extract_section_items(html: str, article_type: str) -> list[tuple[str, str, str]]:
     soup = BeautifulSoup(html, "html.parser")
 
-    if article_type == "twid":
-        target_sections = {"known issues", "patch preview", "patch notes preview", "sandbox preview"}
-    elif article_type == "patch":
+    if article_type == "patch":
         target_sections = {"combatant", "abilities", "general", "weapons", "armor", "activities", "fixes"}
-    else:
+    elif article_type != "twid":
         return []
 
     output: list[tuple[str, str, str]] = []
@@ -172,15 +190,21 @@ def extract_section_items(html: str, article_type: str) -> list[tuple[str, str, 
     for heading in headings:
         heading_text = normalize_line(heading.get_text(" ", strip=True))
         if article_type == "twid":
-            if not any(section in heading_text for section in target_sections):
+            if not any(hint in heading_text for hint in TWID_HEADING_HINTS):
                 continue
             section_name = heading.get_text(" ", strip=True)
             sibling = heading.find_next_sibling()
             while sibling and sibling.name not in ["h1", "h2", "h3", "h4"]:
-                for li in sibling.find_all("li"):
-                    item = li.get_text(" ", strip=True)
-                    if len(item) > 10:
-                        output.append((section_name, item, normalize_line(item)))
+                list_items = sibling.find_all("li")
+                if list_items:
+                    for li in list_items:
+                        item = li.get_text(" ", strip=True)
+                        if len(item) > 10:
+                            output.append((section_name, item, normalize_line(item)))
+                elif sibling.name == "p":
+                    paragraph = sibling.get_text(" ", strip=True)
+                    if len(paragraph) > 40 and any(token in normalize_line(paragraph) for token in {"increased", "decreased", "fixed", "reduced", "now"}):
+                        output.append((section_name, paragraph, normalize_line(paragraph)))
                 sibling = sibling.find_next_sibling()
         else:
             section_name = heading.get_text(" ", strip=True)
