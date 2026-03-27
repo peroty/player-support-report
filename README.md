@@ -80,6 +80,19 @@ docker compose up -d --build
 
 This discards any uncommitted local changes in that repo directory.
 
+### If you also want to refresh a PR branch and force it to latest `origin/main`
+
+If your local PR branch (for example `work`) does not exist yet, recreate it from `origin/main` and push:
+
+```bash
+cd /home/peroty/docker/player-support-report
+git fetch origin
+git checkout -B work origin/main
+git push --force-with-lease origin work
+```
+
+This is useful when you want a clean branch state with no manual conflict resolution.
+
 ## Troubleshooting sync
 
 - Use the in-app **Logs** page (`/logs`) to inspect `INFO`, `WARNING`, and `ERROR` events.
