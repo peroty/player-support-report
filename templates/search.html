@@ -18,11 +18,7 @@
       <tr>
         <td>{{ row['published_at'] or 'Unknown' }}</td>
         <td>{{ row['article_type'] }}</td>
-        <td>
-          <a href="{{ row['url'] }}" target="_blank">{{ row['title'] }}</a>
-          <br />
-          <a href="{{ url_for('article_detail', article_id=row['id']) }}">View parsed text</a>
-        </td>
+        <td><a href="{{ row['url'] }}" target="_blank">{{ row['title'] }}</a></td>
         <td>
           {{ row['version_count'] }} total / {{ row['changed_versions'] }} changed
           <br />

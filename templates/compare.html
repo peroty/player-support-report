@@ -4,31 +4,8 @@
   <p class="error">{{ error }}</p>
 {% else %}
   <h2>Comparison</h2>
-  <form method="get">
-    <label>TWID</label>
-    <select name="twid_id">
-      {% for option in twids %}
-        <option value="{{ option['id'] }}" {% if option['id'] == twid['id'] %}selected{% endif %}>
-          {{ option['published_at'] or 'Unknown' }} - {{ option['title'] }}
-        </option>
-      {% endfor %}
-    </select>
-    <label>Patch</label>
-    <select name="patch_id">
-      {% for option in patches %}
-        <option value="{{ option['id'] }}" {% if option['id'] == patch['id'] %}selected{% endif %}>
-          {{ option['published_at'] or 'Unknown' }} - {{ option['title'] }}
-        </option>
-      {% endfor %}
-    </select>
-    <label>Threshold</label>
-    <input type="number" name="threshold" min="0" max="100" value="{{ threshold }}" />
-    <button type="submit">Compare</button>
-  </form>
   <p>TWID: <a href="{{ twid['url'] }}" target="_blank">{{ twid['title'] }}</a></p>
-  <p><a href="{{ url_for('article_detail', article_id=twid['id']) }}">View TWID text</a></p>
   <p>Patch: <a href="{{ patch['url'] }}" target="_blank">{{ patch['title'] }}</a></p>
-  <p><a href="{{ url_for('article_detail', article_id=patch['id']) }}">View Patch text</a></p>
   <p>Threshold: {{ threshold }} | Teased: {{ teased_count }} / {{ results|length }}</p>
 
   <table>

@@ -11,7 +11,6 @@ A self-hosted Flask app that:
 - Compares latest patch notes vs latest TWID with fuzzy matching.
 - Strikethroughs patch notes that were already teased in the TWID.
 - Lets you search full text mentions, including quoted phrases.
-- Stores and displays parsed markdown-style body text for each article (headings/lists/paragraphs; media omitted).
 - Detects tease sections more flexibly (e.g., Sandbox/Balance/Class/Changes headings, not just exact \"Patch Preview\").
 
 ## Why this helps your podcast workflow
@@ -35,7 +34,6 @@ Open http://localhost:8000 then:
 1. Click **Sync from RSS**.
 2. Click **Compare latest**.
 3. Optionally use `/search?q=warlock,titan,"sweet business"`.
-4. Use **View parsed text** links (or `/article/<id>`) to read full TWID/Patch text in markdown-like format.
 
 ## Deploy in homelab
 
@@ -66,32 +64,6 @@ docker compose up -d --build
 
 The persistent SQLite DB is stored on the host at `./data/data.sqlite3` via bind mount.
 Application logs are persisted under `./data/logs/app.log`.
-
-## Fast update (accept incoming remote changes without manual conflict review)
-
-If you want your local checkout to exactly match `origin/main` and skip merge-conflict review:
-
-```bash
-cd /home/peroty/docker/player-support-report
-git fetch origin
-git reset --hard origin/main
-docker compose up -d --build
-```
-
-This discards any uncommitted local changes in that repo directory.
-
-### If you also want to refresh a PR branch and force it to latest `origin/main`
-
-If your local PR branch (for example `work`) does not exist yet, recreate it from `origin/main` and push:
-
-```bash
-cd /home/peroty/docker/player-support-report
-git fetch origin
-git checkout -B work origin/main
-git push --force-with-lease origin work
-```
-
-This is useful when you want a clean branch state with no manual conflict resolution.
 
 ## Troubleshooting sync
 
