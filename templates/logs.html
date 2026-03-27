@@ -2,6 +2,11 @@
 {% block content %}
 <h2>Application logs</h2>
 <p>Showing latest {{ rows|length }} entries. File log path: <code>{{ log_path }}</code></p>
+{% if include_404 %}
+  <p><a href="{{ url_for('logs') }}">Hide historical 404 tracebacks</a></p>
+{% else %}
+  <p><a href="{{ url_for('logs', include_404=1) }}">Show historical 404 tracebacks</a></p>
+{% endif %}
 <table>
   <thead>
     <tr><th>Time (UTC)</th><th>Level</th><th>Message</th><th>Details</th></tr>

@@ -11,6 +11,7 @@ A self-hosted Flask app that:
 - Compares latest patch notes vs latest TWID with fuzzy matching.
 - Strikethroughs patch notes that were already teased in the TWID.
 - Lets you search full text mentions, including quoted phrases.
+- Stores and displays parsed markdown-style body text for each article (headings/lists/paragraphs; media omitted).
 - Detects tease sections more flexibly (e.g., Sandbox/Balance/Class/Changes headings, not just exact \"Patch Preview\").
 
 ## Why this helps your podcast workflow
@@ -34,6 +35,7 @@ Open http://localhost:8000 then:
 1. Click **Sync from RSS**.
 2. Click **Compare latest**.
 3. Optionally use `/search?q=warlock,titan,"sweet business"`.
+4. Use **View parsed text** links (or `/article/<id>`) to read full TWID/Patch text in markdown-like format.
 
 ## Deploy in homelab
 

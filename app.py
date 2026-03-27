@@ -78,6 +78,7 @@ def init_db() -> None:
             url TEXT NOT NULL,
             published_at TEXT,
             content_text TEXT NOT NULL DEFAULT '',
+            content_markdown TEXT NOT NULL DEFAULT '',
             content_normalized TEXT NOT NULL DEFAULT '',
             content_hash TEXT NOT NULL DEFAULT '',
             content_html TEXT NOT NULL,
@@ -111,6 +112,7 @@ def init_db() -> None:
             published_at TEXT,
             content_hash TEXT NOT NULL,
             content_text TEXT NOT NULL,
+            content_markdown TEXT NOT NULL,
             content_normalized TEXT NOT NULL,
             content_html TEXT NOT NULL,
             is_changed INTEGER NOT NULL CHECK(is_changed IN (0,1))
@@ -124,6 +126,8 @@ def init_db() -> None:
         conn.execute("ALTER TABLE articles ADD COLUMN content_text TEXT NOT NULL DEFAULT ''")
     if "content_normalized" not in existing_cols:
         conn.execute("ALTER TABLE articles ADD COLUMN content_normalized TEXT NOT NULL DEFAULT ''")
+    if "content_markdown" not in existing_cols:
+        conn.execute("ALTER TABLE articles ADD COLUMN content_markdown TEXT NOT NULL DEFAULT ''")
     if "content_hash" not in existing_cols:
         conn.execute("ALTER TABLE articles ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
     conn.commit()
@@ -253,19 +257,45 @@ def extract_section_items(html: str, article_type: str) -> list[tuple[str, str, 
     return output
 
 
+def html_to_markdown(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    root = soup.find("article") or soup.find("main") or soup.body or soup
+    lines: list[str] = []
+    for node in root.find_all(["h1", "h2", "h3", "h4", "p", "li", "blockquote"]):
+        text = node.get_text(" ", strip=True)
+        if not text:
+            continue
+        if node.name == "h1":
+            lines.append(f"# {text}")
+        elif node.name == "h2":
+            lines.append(f"## {text}")
+        elif node.name == "h3":
+            lines.append(f"### {text}")
+        elif node.name == "h4":
+            lines.append(f"#### {text}")
+        elif node.name == "li":
+            lines.append(f"- {text}")
+        elif node.name == "blockquote":
+            lines.append(f"> {text}")
+        else:
+            lines.append(text)
+    return "\n\n".join(lines)
+
+
 def upsert_article(conn: sqlite3.Connection, *, title: str, url: str, published_at: str | None, html: str) -> int:
     slug = slug_from_url(url)
     article_type = classify_article(url, title)
     fetched_at = datetime.now(timezone.utc).isoformat()
     content_text = BeautifulSoup(html, "html.parser").get_text(" ", strip=True)
-    content_normalized = normalize_line(content_text)
+    content_markdown = html_to_markdown(html)
+    content_normalized = normalize_line(content_markdown or content_text)
     content_hash = sha256(content_normalized.encode("utf-8")).hexdigest()
     previous = conn.execute("SELECT content_hash FROM articles WHERE slug = ?", (slug,)).fetchone()
     is_changed = 0 if previous and previous["content_hash"] == content_hash else 1
     conn.execute(
         """
-        INSERT INTO articles(slug, article_type, title, url, published_at, content_text, content_normalized, content_hash, content_html, fetched_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?)
+        INSERT INTO articles(slug, article_type, title, url, published_at, content_text, content_markdown, content_normalized, content_hash, content_html, fetched_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(slug)
         DO UPDATE SET
           title=excluded.title,
@@ -273,22 +303,23 @@ def upsert_article(conn: sqlite3.Connection, *, title: str, url: str, published_
           url=excluded.url,
           published_at=excluded.published_at,
           content_text=excluded.content_text,
+          content_markdown=excluded.content_markdown,
           content_normalized=excluded.content_normalized,
           content_hash=excluded.content_hash,
           content_html=excluded.content_html,
           fetched_at=excluded.fetched_at
         """,
-        (slug, article_type, title, url, published_at, content_text, content_normalized, content_hash, html, fetched_at),
+        (slug, article_type, title, url, published_at, content_text, content_markdown, content_normalized, content_hash, html, fetched_at),
     )
     row = conn.execute("SELECT id FROM articles WHERE slug = ?", (slug,)).fetchone()
     assert row is not None
     article_id = int(row["id"])
     conn.execute(
         """
-        INSERT INTO article_versions(article_id, fetched_at, title, published_at, content_hash, content_text, content_normalized, content_html, is_changed)
-        VALUES(?,?,?,?,?,?,?,?,?)
+        INSERT INTO article_versions(article_id, fetched_at, title, published_at, content_hash, content_text, content_markdown, content_normalized, content_html, is_changed)
+        VALUES(?,?,?,?,?,?,?,?,?,?)
         """,
-        (article_id, fetched_at, title, published_at, content_hash, content_text, content_normalized, html, is_changed),
+        (article_id, fetched_at, title, published_at, content_hash, content_text, content_markdown, content_normalized, html, is_changed),
     )
 
     conn.execute("DELETE FROM extracted_items WHERE article_id = ?", (article_id,))
@@ -357,6 +388,13 @@ def parse_search_terms(query: str) -> tuple[list[str], list[str]]:
     return [term for term in quoted if term], [term for term in keywords if term]
 
 
+def parse_int(value: str | None, default: int) -> int:
+    try:
+        return int(value) if value is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
 def find_latest(conn: sqlite3.Connection, article_type: str):
     return conn.execute(
         "SELECT * FROM articles WHERE article_type = ? ORDER BY published_at DESC NULLS LAST, id DESC LIMIT 1",
@@ -374,6 +412,13 @@ def find_matches(patch_id: int, twid_id: int, threshold: int = 82) -> list[sqlit
         "SELECT id, section, item_text, normalized_item FROM extracted_items WHERE article_id = ?",
         (twid_id,),
     ).fetchall()
+    if not patch_rows or not twid_rows:
+        patch_article = conn.execute("SELECT content_markdown FROM articles WHERE id = ?", (patch_id,)).fetchone()
+        twid_article = conn.execute("SELECT content_markdown FROM articles WHERE id = ?", (twid_id,)).fetchone()
+        patch_lines = [line for line in (patch_article["content_markdown"] if patch_article else "").splitlines() if len(normalize_line(line)) > 20]
+        twid_lines = [line for line in (twid_article["content_markdown"] if twid_article else "").splitlines() if len(normalize_line(line)) > 20]
+        patch_rows = [{"section": "Body", "item_text": line, "normalized_item": normalize_line(line)} for line in patch_lines]
+        twid_rows = [{"section": "Body", "item_text": line, "normalized_item": normalize_line(line)} for line in twid_lines]
     results = []
     for patch in patch_rows:
         best_score = 0
@@ -442,18 +487,30 @@ def compare_latest():
     conn = get_db()
     latest_twid = find_latest(conn, "twid")
     latest_patch = find_latest(conn, "patch")
+    twids = conn.execute(
+        "SELECT id, title, published_at FROM articles WHERE article_type = 'twid' ORDER BY published_at DESC NULLS LAST, id DESC LIMIT 100"
+    ).fetchall()
+    patches = conn.execute(
+        "SELECT id, title, published_at FROM articles WHERE article_type = 'patch' ORDER BY published_at DESC NULLS LAST, id DESC LIMIT 100"
+    ).fetchall()
+    twid_id = parse_int(request.args.get("twid_id"), latest_twid["id"] if latest_twid else 0)
+    patch_id = parse_int(request.args.get("patch_id"), latest_patch["id"] if latest_patch else 0)
+    selected_twid = conn.execute("SELECT * FROM articles WHERE id = ?", (twid_id,)).fetchone() if twid_id else latest_twid
+    selected_patch = conn.execute("SELECT * FROM articles WHERE id = ?", (patch_id,)).fetchone() if patch_id else latest_patch
     conn.close()
-    if not latest_twid or not latest_patch:
+    if not selected_twid or not selected_patch:
         return render_template("compare.html", error="Need at least one TWID and one Patch article."), 400
 
     threshold = int(request.args.get("threshold", 82))
-    results = find_matches(latest_patch["id"], latest_twid["id"], threshold=threshold)
+    results = find_matches(selected_patch["id"], selected_twid["id"], threshold=threshold)
     teased_count = sum(1 for row in results if row["teased"])
     return render_template(
         "compare.html",
         results=results,
-        twid=latest_twid,
-        patch=latest_patch,
+        twid=selected_twid,
+        patch=selected_patch,
+        twids=twids,
+        patches=patches,
         threshold=threshold,
         teased_count=teased_count,
     )
@@ -479,6 +536,7 @@ def search():
             rows = conn.execute(
                 f"""
                 SELECT
+                    a.id,
                     a.slug,
                     a.title,
                     a.url,
@@ -494,7 +552,7 @@ def search():
                       FROM article_versions v
                       WHERE v.article_id = a.id AND v.is_changed = 1
                     ) AS changed_versions,
-                    substr(a.content_text, 1, 450) AS excerpt
+                    substr(a.content_markdown, 1, 450) AS excerpt
                 FROM articles a
                 WHERE {where}
                 ORDER BY a.published_at DESC NULLS LAST
@@ -526,6 +584,19 @@ def history(slug: str):
     return render_template("history.html", article=article, versions=versions)
 
 
+@app.route("/article/<int:article_id>")
+def article_detail(article_id: int):
+    conn = get_db()
+    article = conn.execute(
+        "SELECT id, title, url, article_type, published_at, content_markdown FROM articles WHERE id = ?",
+        (article_id,),
+    ).fetchone()
+    conn.close()
+    if not article:
+        return render_template("error.html", error=f"No article found for id '{article_id}'"), 404
+    return render_template("article.html", article=article)
+
+
 @app.route("/healthz")
 def healthz():
     return {"status": "ok"}, 200
@@ -533,10 +604,25 @@ def healthz():
 
 @app.route("/logs")
 def logs():
+    include_404 = request.args.get("include_404", "0") == "1"
     conn = get_db()
-    rows = conn.execute("SELECT created_at, level, message, details FROM app_logs ORDER BY id DESC LIMIT 300").fetchall()
+    if include_404:
+        rows = conn.execute("SELECT created_at, level, message, details FROM app_logs ORDER BY id DESC LIMIT 300").fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT created_at, level, message, details
+            FROM app_logs
+            WHERE NOT (
+                message = 'Unhandled application exception'
+                AND coalesce(details, '') LIKE '%werkzeug.exceptions.NotFound%'
+            )
+            ORDER BY id DESC
+            LIMIT 300
+            """
+        ).fetchall()
     conn.close()
-    return render_template("logs.html", rows=rows, log_path=str(LOG_PATH))
+    return render_template("logs.html", rows=rows, log_path=str(LOG_PATH), include_404=include_404)
 
 
 @app.route("/favicon.ico")
