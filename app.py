@@ -539,15 +539,20 @@ def logs():
     return render_template("logs.html", rows=rows, log_path=str(LOG_PATH))
 
 
-@app.errorhandler(404)
-def handle_not_found(exc):  # noqa: ANN001
-    return render_template("error.html", error=f"Not found: {request.path}"), 404
+@app.route("/favicon.ico")
+def favicon():
+    return "", 204
+
+
+@app.errorhandler(HTTPException)
+def handle_http_exception(exc: HTTPException):
+    if exc.code == 404:
+        return render_template("error.html", error=f"Not found: {request.path}"), 404
+    return exc
 
 
 @app.errorhandler(Exception)
-def handle_unexpected_error(exc):  # noqa: ANN001
-    if isinstance(exc, HTTPException):
-        return exc
+def handle_unexpected_error(exc: Exception):
     add_log("error", "Unhandled application exception", traceback.format_exc())
     return render_template("error.html", error=str(exc)), 500
 
