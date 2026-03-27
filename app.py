@@ -17,6 +17,7 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, redirect, render_template, request, url_for
 from matcher import normalize_line, similarity_score
+from werkzeug.exceptions import HTTPException
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = Path(os.getenv("DB_PATH", str(BASE_DIR / "data.sqlite3")))
@@ -538,8 +539,15 @@ def logs():
     return render_template("logs.html", rows=rows, log_path=str(LOG_PATH))
 
 
+@app.errorhandler(404)
+def handle_not_found(exc):  # noqa: ANN001
+    return render_template("error.html", error=f"Not found: {request.path}"), 404
+
+
 @app.errorhandler(Exception)
 def handle_unexpected_error(exc):  # noqa: ANN001
+    if isinstance(exc, HTTPException):
+        return exc
     add_log("error", "Unhandled application exception", traceback.format_exc())
     return render_template("error.html", error=str(exc)), 500
 
