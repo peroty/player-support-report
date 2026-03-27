@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>{{ article['title'] }}</h2>
+<p>
+  <strong>Type:</strong> {{ article['article_type'] }}
+  <br />
+  <strong>Published:</strong> {{ article['published_at'] or 'Unknown' }}
+  <br />
+  <a href="{{ article['url'] }}" target="_blank">Open original Bungie page</a>
+</p>
+
+<pre style="white-space: pre-wrap; line-height: 1.35;">{{ article['content_markdown'] }}</pre>
+{% endblock %}

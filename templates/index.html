@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block content %}
+{% if imported is not none %}
+  <p class="success">Sync complete. Imported {{ imported }}, unchanged {{ unchanged or 0 }}, skipped {{ skipped }}, failed {{ failed }}.</p>
+{% endif %}
+{% if sync_error %}
+  <p class="error">Sync failed: {{ sync_error }} (see <a href="{{ url_for('logs') }}">logs</a>).</p>
+{% endif %}
+
+<section class="cards">
+  <article class="card">
+    <h2>Latest TWID</h2>
+    {% if latest_twid %}
+      <p><a href="{{ latest_twid['url'] }}" target="_blank">{{ latest_twid['title'] }}</a></p>
+      <small>{{ latest_twid['published_at'] or 'Unknown date' }}</small>
+    {% else %}
+      <p>No TWID imported yet.</p>
+    {% endif %}
+  </article>
+  <article class="card">
+    <h2>Latest Patch</h2>
+    {% if latest_patch %}
+      <p><a href="{{ latest_patch['url'] }}" target="_blank">{{ latest_patch['title'] }}</a></p>
+      <small>{{ latest_patch['published_at'] or 'Unknown date' }}</small>
+    {% else %}
+      <p>No patch notes imported yet.</p>
+    {% endif %}
+  </article>
+</section>
+
+<h2>Recent Imported Articles</h2>
+<table>
+  <thead>
+    <tr><th>Type</th><th>Title</th><th>Published</th><th>Archive</th></tr>
+  </thead>
+  <tbody>
+  {% for row in recent_articles %}
+    <tr>
+      <td>{{ row['article_type'] }}</td>
+      <td>
+        <a href="{{ row['url'] }}" target="_blank">{{ row['title'] }}</a>
+        <br />
+        <a href="{{ url_for('article_detail', article_id=row['id']) }}">View parsed text</a>
+      </td>
+      <td>{{ row['published_at'] or 'Unknown' }}</td>
+      <td><a href="{{ url_for('history', slug=row['slug']) }}">Versions</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4">No data yet. Click Sync from RSS.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

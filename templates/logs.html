@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Application logs</h2>
+<p>Showing latest {{ rows|length }} entries. File log path: <code>{{ log_path }}</code></p>
+{% if include_404 %}
+  <p><a href="{{ url_for('logs') }}">Hide historical 404 tracebacks</a></p>
+{% else %}
+  <p><a href="{{ url_for('logs', include_404=1) }}">Show historical 404 tracebacks</a></p>
+{% endif %}
+<table>
+  <thead>
+    <tr><th>Time (UTC)</th><th>Level</th><th>Message</th><th>Details</th></tr>
+  </thead>
+  <tbody>
+  {% for row in rows %}
+    <tr class="log-{{ row['level']|lower }}">
+      <td>{{ row['created_at'] }}</td>
+      <td>{{ row['level'] }}</td>
+      <td>{{ row['message'] }}</td>
+      <td><pre>{{ row['details'] or '' }}</pre></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4">No log entries yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
